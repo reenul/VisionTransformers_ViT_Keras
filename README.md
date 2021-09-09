@@ -23,11 +23,13 @@ TRAIN_PATH is the path (relative or absolute) of the dataset directory, containi
 
 DF_TRAIN reads the CSV annotation file. 
 
-The number and name of classes are to be defined. The class numbers should be the same as the label numbers used in the CSV file
+The number and name of classes are to be defined as ease based on your application. The class numbers should be the same as the label numbers used in the CSV file.
+
 <img src="https://user-images.githubusercontent.com/45753185/132691108-e95beeff-263d-47cc-aa45-4a75f65f8f5b.png" height="80" width="180">
 
 # 3. Train
 
 The created model is trained by calling the function train(folds, leavePout). Where folds represents the number of folders to use for cross validation (K-Fold) and leavePout is the number of folders to use as validation set. 
+The dataset is divided equally in (K+1) folders. One folder is kept for testing while the remaining K folders are used for training/validation. Varying the value of leavePout will vary the number of training images and validation images and thus can be used to test the model's performance with different number of training images. 
 The trained model will be saved in the working directory and the figures will be saved in “./Training_Validation_graphs/”.
 
