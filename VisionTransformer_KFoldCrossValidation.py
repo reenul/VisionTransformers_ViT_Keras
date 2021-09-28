@@ -5,6 +5,7 @@
  for each class label.
  
 """
+
 import pandas as pd
 import numpy as np
 import tensorflow as tf
@@ -23,11 +24,16 @@ EPOCHS = 100
 
 # Main path of training/validation dataset containing other folders for each 
 # class label
+# Main path of test dataset containing testing images 
 TRAIN_PATH = './Dataset'
+# TEST_PATH = './test_imagesROI/'
 
 # CSV file for training/validation organised as follows: 
 #    image_id : label
 DF_TRAIN = pd.read_csv('./trainval_5classes.csv', dtype='str')
+
+# TEST_IMAGES = glob.glob(TEST_PATH+'*.png')
+# DF_TEST = pd.DataFrame(TEST_IMAGES, columns = ['image_path'])
 
 
 # Define the number of classes and each class label 
@@ -43,6 +49,8 @@ sns.countplot('label', data=DF_TRAIN)
 plt.show()
 
 
+
+# Data augmentation function
 def data_augment(image):
     """
     Data augmentation function applying random rotation, random resized crop, 
@@ -94,14 +102,14 @@ datagen = tf.keras.preprocessing.image.ImageDataGenerator(rescale = 1./255,
                                                           samplewise_center = True,
                                                           samplewise_std_normalization = True,                                              
                                                           preprocessing_function = data_augment)
-# datagentest = tf.keras.preprocessing.image.ImageDataGenerator(rescale = 1./255,
-#                                                           samplewise_center = True,
-#                                                           samplewise_std_normalization = True)
+
+datagentest = tf.keras.preprocessing.image.ImageDataGenerator(rescale = 1./255,
+                                                          samplewise_center = True,
+                                                          samplewise_std_normalization = True)
 
 DF_TRAIN['label'] = DF_TRAIN['label'].astype('str')
 DF_TRAIN = DF_TRAIN[['image_id', 'label']]
 # DF_TEST = DF_TEST[['image_path']]
-
 
 
 ##############################################################################
@@ -110,7 +118,6 @@ DF_TRAIN = DF_TRAIN[['image_id', 'label']]
 
 # VISION TRANSFORMERS VIT (choose from keras vit model database)
 from vit_keras import vit
-
 vit_model = vit.vit_b16(
         image_size = IMAGE_SIZE,
         activation = 'softmax',
@@ -120,27 +127,27 @@ vit_model = vit.vit_b16(
         classes = 5)
 
 # Efficientnet 
-# from tensorflow.keras.applications import EfficientNetB1
-# eff_model = EfficientNetB1(weights='imagenet',
-#                            include_top=False,
-#                            input_shape=(64,64,3),
-#                            classifier_activation='softmax',
-#                            classes=5)
+# from tensorflow.keras.applications import EfficientNetB0
+# eff_model = EfficientNetB0(weights='imagenet',
+#                             include_top=False,
+#                             input_shape=(64,64,3),
+#                             classifier_activation='softmax',
+#                             classes=5)
 
 # ResNet50
 # from tensorflow.keras.applications import ResNet50
 # res_model = ResNet50(weights='imagenet',
-#                            include_top=False,
-#                            input_shape=(64,64,3),
-#                            classifier_activation='softmax',
-#                            classes=5)
+#                             include_top=False,
+#                             input_shape=(64,64,3),
+#                             classifier_activation='softmax',
+#                             classes=5)
 
 ##############################################################################
 #   CREATE MODEL
 ##############################################################################
 def getModel(model_name):
     """
-    Loads, builds and fine-tunes a model.
+    Loads and builds a model
 
     Parameters
     ----------
@@ -148,7 +155,7 @@ def getModel(model_name):
 
     Returns
     -------
-    model : a new model for training.
+    model : A new training model.
 
     """
     model = tf.keras.Sequential([
@@ -160,7 +167,6 @@ def getModel(model_name):
           tf.keras.layers.Dense(5, 'softmax')  #last layer number of classes
           ],
           name = model_name)
-  
     model.summary()
     return model
 
@@ -174,23 +180,23 @@ optimizer = tfa.optimizers.RectifiedAdam(learning_rate = learning_rate)
 
 # Define number of folders to divide training dataset
 # k_folds = (K-FOLD Cross Validation folders) + (one testing folder) 
-k_folds = 5 + 1
+# k_folds = 5 + 1
 
-# Using Stratified K-Fold Cross Validation, shuffling data 
-from sklearn.model_selection import StratifiedKFold
-skf = StratifiedKFold(n_splits=k_folds, shuffle=True, random_state=20000)
+# # Using Stratified K-Fold Cross Validation, shuffling data 
+# from sklearn.model_selection import StratifiedKFold
+# skf = StratifiedKFold(n_splits=k_folds, shuffle=True, random_state=20000)
 
-df_folds = DF_TRAIN[['image_id']].copy()
-df_folds.loc[:, 'label'] = DF_TRAIN['label'].copy()
-# df_folds = df_folds.groupby('image_id').count()
-# df_folds.loc[:, 'stratify_group'] = np.char.add(
-#     "weed",
-#     df_folds['image_id'].values.astype(str)
-# )
-df_folds.loc[:, 'fold'] = 0
+# df_folds = DF_TRAIN[['image_id']].copy()
+# df_folds.loc[:, 'label'] = DF_TRAIN['label'].copy()
+# # df_folds = df_folds.groupby('image_id').count()
+# # df_folds.loc[:, 'stratify_group'] = np.char.add(
+# #     "weed",
+# #     df_folds['image_id'].values.astype(str)
+# # )
+# df_folds.loc[:, 'fold'] = 0
 
-for fold_number, (train_index, val_index) in enumerate(skf.split(X=df_folds.index, y=df_folds['label'])):
-    df_folds.loc[df_folds.iloc[val_index].index, 'fold'] = fold_number
+# for fold_number, (train_index, val_index) in enumerate(skf.split(X=df_folds.index, y=df_folds['label'])):
+#     df_folds.loc[df_folds.iloc[val_index].index, 'fold'] = fold_number
     
 
 ##############################################################################
@@ -200,38 +206,57 @@ for fold_number, (train_index, val_index) in enumerate(skf.split(X=df_folds.inde
 from itertools import combinations
 model_name = []
 
-def train(folds,leavePout):
+def train(total_folds,val_folds,test_folds):
     """
     Trains a model using a K-Fold Cross Validation technique and evaluate the 
     model's performance on a separate testing dataset. 
-    We use a stratified K-Fold CV leaving p folders as validation set. 
-    
+    We use a stratified K-Fold CV leaving p folders as validation set.
+
     Parameters
     ----------
-    folds : K number of folders in which the dataset will be divided.
-    leavePout : number of folders (1<P<K) to leave as validation set.
+    total_folds : Total number of folds in which the image dataset is 
+    separated into.
+    
+    val_folds : Number of folds used as validation set.
+    
+    test_folds : Number of folds used as testing set.
 
     Returns
     -------
     None.
 
     """
-    
-    j = 1
 
+    j = 1
+    folds = total_folds - test_folds   # Number of folds to be used for CV
+    
+    # Divide dataset into X folders using stratified K-Fold
+    from sklearn.model_selection import StratifiedKFold
+    skf = StratifiedKFold(n_splits=total_folds, shuffle=True, random_state=20000)
+
+    df_folds = DF_TRAIN[['image_id']].copy()
+    df_folds.loc[:, 'label'] = DF_TRAIN['label'].copy()
+    df_folds.loc[:, 'fold'] = 0
+
+    for fold_number, (train_index, val_index) in enumerate(skf.split(X=df_folds.index, y=df_folds['label'])):
+        df_folds.loc[df_folds.iloc[val_index].index, 'fold'] = fold_number
+        
+    # List of folders used for training and testing
     list_folds = list(range(1, folds+1))
     list_train = list(list_folds.copy())
-
-    comb = combinations(list_folds, leavePout)
+    list_test = list(range((total_folds-test_folds+1),total_folds+1))
     
+    # Calculate the combination for selecting val_folds in list_folds - which 
+    # will correspond to the number of models created for CV
+    comb = combinations(list_folds, val_folds)
+    
+   
     for i in comb:
+        
         list_train = list(list_folds.copy())
         validdf = df_folds[df_folds['fold'] == 50]
         traindf = df_folds[df_folds['fold'] == 50]
-        
-        # TEST FOLDER IS SET TO 5 (6TH FOLDER) - REMAINING 5 FOLDERS ARE USED 
-        # FOR CROSS VALIDATION
-        testdf = df_folds[df_folds['fold'] == 5]
+        testdf = df_folds[df_folds['fold'] == 50]
         
         for val_idx in range(len(i)):
             list_train.remove(i[val_idx])
@@ -239,6 +264,9 @@ def train(folds,leavePout):
         
         for train_idx in range(len(list_train)):
             traindf = traindf.append(df_folds[df_folds['fold'] == list_train[train_idx]-1])
+        
+        for test_idx in range(len(list_test)):
+            testdf = testdf.append(df_folds[df_folds['fold'] == list_test[test_idx]-1])
             
        
         print("=========================================")
@@ -271,7 +299,7 @@ def train(folds,leavePout):
                                         class_mode = 'categorical',
                                         target_size = (IMAGE_SIZE, IMAGE_SIZE))
         
-        test_gen = datagen.flow_from_dataframe(dataframe = testdf,
+        test_gen = datagentest.flow_from_dataframe(dataframe = testdf,
                                         directory = TRAIN_PATH,
                                         x_col = 'image_id',
                                         y_col = 'label',
@@ -285,7 +313,7 @@ def train(folds,leavePout):
 
    
         # Set model saved name
-        model_name = 'model_ViT_5classes_leave1out_fold_'+str(j)
+        model_name = 'model_EffNetB1_0.7test'+str(j)
         
         # Load model
         model = getModel(model_name)
@@ -340,12 +368,12 @@ def train(folds,leavePout):
         ###################### EVALUATE MODEL ################################
         ######################################################################
 
-        # predicts on the testing folder (6th folder)
+        # predicts on the testing folder 
         predicted_classes = np.argmax(model.predict(test_gen), axis = 1)
 
     # predicted_classes = np.argmax(model.predict(valid_gen, steps = valid_gen.n // valid_gen.batch_size + 1), axis = 1)
         true_classes = test_gen.classes
-        class_labels = list(test_gen.class_indices.keys())  
+
 
         confusionmatrix = confusion_matrix(true_classes, predicted_classes)
         plt.figure(figsize = (64, 64))
@@ -377,7 +405,7 @@ def train(folds,leavePout):
         plt.title('Training and Validation Loss')
         plt.show()
   
-        fig.savefig("Training_Validation_graphs/Training and Validation Accuracy-Loss EfficientNet B1 5folds 5classes Leave "+str(leavePout)+" out folds "+str(i)+".jpg",dpi=fig.dpi)
+        fig.savefig("Training_Validation_graphs/Training and Validation Accuracy-Loss model_EffNetB1_0.7test Leave "+str(val_folds)+" out folds "+str(i)+".jpg",dpi=fig.dpi)
 
         # clear model before loading a new one to complete cross validation
         del model 
@@ -385,59 +413,12 @@ def train(folds,leavePout):
         j+=1
     
 
-##############################################################################
+###############################################################################################################
 
 # Calls training function with folds 
 # params: folds=K cross vallidation (number of folders used for training/validation)
 #         leaveKout=number of folders to be used as validation set
 
-train(folds=k_folds-1, leavePout=3)
+train(total_folds=10, val_folds=1, test_folds=5) 
 
 
-##############################################################################
-####################### ADDITIONAL TESTING ###################################
-##############################################################################
-
-# load model and weights
-modelx = getModel('testmodel')
-modelx.load_weights('model_ViT_B16_5classes_leave2out_fold_10.hdf5')
-
-modelx.compile(optimizer = optimizer, 
-              loss = tf.keras.losses.CategoricalCrossentropy(label_smoothing = 0.2), 
-              metrics = ['accuracy'])
-
-# Path containing testing images 
-TEST_PATH = './Testing/'
-DF_Test = pd.read_csv('./testing.csv', dtype='str')
-
-plt.figure()
-sns.countplot('label', data=DF_Test)
-plt.show()
-
-# load testing images 
-test_gen = datagen.flow_from_dataframe(dataframe = DF_Test,
-                                        directory = TEST_PATH,
-                                        x_col = 'image_id',
-                                        y_col = 'label',
-                                        # subset = 'validation',
-                                        batch_size = BATCH_SIZE,
-                                        seed = 1,
-                                        color_mode = 'rgb',
-                                        shuffle = False,
-                                        class_mode = 'categorical',
-                                        target_size = (IMAGE_SIZE, IMAGE_SIZE))
-
-# Evaluate model 
-modelx.evaluate(test_gen, batch_size=BATCH_SIZE)
-predicted_classes = np.argmax(modelx.predict(test_gen), axis = 1)
-
-# predicted_classes = np.argmax(model.predict(valid_gen, steps = valid_gen.n // valid_gen.batch_size + 1), axis = 1)
-true_classes = test_gen.classes
-class_labels = list(test_gen.class_indices.keys())  
-
-confusionmatrix = confusion_matrix(true_classes, predicted_classes)
-plt.figure(figsize = (64, 64))
-sns.heatmap(confusionmatrix, cmap = 'Blues', annot = True, cbar = True)
-
-classification_report(true_classes, predicted_classes, target_names = ['Weed (Class 0)','Hors-type (Class 1)', 'Betterave (Class 2)', 'Persil (Class 3)', 'Epinard (Class 4)'])
-  
